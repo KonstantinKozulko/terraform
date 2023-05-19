@@ -1,67 +1,38 @@
-name: Create EKS Cluster and Deploy MySQL
+name: deploy
 
 on:
   push:
     branches:
       - main
 
-env:
-  AWS_REGION: us-west-2
-  CLUSTER_NAME: my-eks-cluster
-  DB_PASSWORD: mysecretpassword
-
 jobs:
-  setup:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v2
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v1
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+          terraform_version: 1.0.3
 
-      - name: Install Terraform
-        run: |
-          curl -LO https://releases.hashicorp.com/terraform/0.15.4/terraform_0.15.4_linux_amd64.zip
-          unzip terraform_0.15.4_linux_amd64.zip
-          sudo mv terraform /usr/local/bin/
-        shell: bash
-
-      - name: Set up Terraform workspace
-        run: terraform workspace new eks || terraform workspace select eks
-        working-directory: terraform
-
-      - name: Initialize Terraform
+      - name: Terraform Init
         run: terraform init
-        working-directory: terraform
 
-      - name: Plan Terraform changes
+      - name: Terraform Plan
         id: plan
-        run: terraform plan -var="cluster_name=${{ env.CLUSTER_NAME }}"
-        working-directory: terraform
+        run: terraform plan -out=tfplan
 
-      - name: Create EKS cluster
-        if: steps.plan.outputs.exit-code == 0
-        run: terraform apply -auto-approve -var="cluster_name=${{ env.CLUSTER_NAME }}"
-        working-directory: terraform
-
-      - name: Configure kubectl
-        run: aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ env.CLUSTER_NAME }}
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: terraform apply -auto-approve tfplan
 
       - name: Deploy MySQL
-        run: |
-          kubectl apply -f mysql-persistent-volume.yaml
-          kubectl apply -f mysql-deployment.yaml
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: kubectl apply -f mysql.yaml
 
-      - name: Run tests
-        run: |
-          # Run your tests here
-
-      - name: Destroy EKS cluster
-        run: terraform destroy -auto-approve -var="cluster_name=${{ env.CLUSTER_NAME }}"
-        working-directory: terraform
+      - name: Run Tests
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: echo "Running tests..."
